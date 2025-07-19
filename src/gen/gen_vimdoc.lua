@@ -144,7 +144,6 @@ local config = {
       '_inspector.lua',
       'shared.lua',
       'loader.lua',
-      'pack.lua',
       'uri.lua',
       'ui.lua',
       '_extui.lua',
@@ -161,6 +160,7 @@ local config = {
       'snippet.lua',
       'text.lua',
       'tohtml.lua',
+      'net.lua',
     },
     files = {
       'runtime/lua/vim/iter.lua',
@@ -168,7 +168,6 @@ local config = {
       'runtime/lua/vim/_options.lua',
       'runtime/lua/vim/shared.lua',
       'runtime/lua/vim/loader.lua',
-      'runtime/lua/vim/pack.lua',
       'runtime/lua/vim/uri.lua',
       'runtime/lua/vim/ui.lua',
       'runtime/lua/vim/_extui.lua',
@@ -192,6 +191,7 @@ local config = {
       'runtime/lua/vim/_meta/re.lua',
       'runtime/lua/vim/_meta/spell.lua',
       'runtime/lua/tohtml.lua',
+      'runtime/lua/vim/net.lua',
     },
     fn_xform = function(fun)
       if contains(fun.module, { 'vim.uri', 'vim.shared', 'vim._editor' }) then
@@ -283,6 +283,7 @@ local config = {
       'tagfunc.lua',
       'semantic_tokens.lua',
       'document_color.lua',
+      'linked_editing_range.lua',
       'handlers.lua',
       'util.lua',
       'log.lua',
@@ -399,6 +400,17 @@ local config = {
     end,
     helptag_fmt = function()
       return { 'vim.health', 'health' }
+    end,
+  },
+  pack = {
+    filename = 'pack.txt',
+    files = { 'runtime/lua/vim/pack.lua' },
+    section_order = { 'pack.lua' },
+    section_fmt = function(_name)
+      return 'Plugin manager'
+    end,
+    helptag_fmt = function()
+      return { 'vim.pack' }
     end,
   },
 }
