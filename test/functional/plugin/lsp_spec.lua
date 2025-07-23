@@ -3328,7 +3328,7 @@ describe('LSP', function()
           filename = '/test_a',
           kind = 'File',
           lnum = 2,
-          text = '[File] TestA',
+          text = '[File] TestA in TestAContainer',
         },
         {
           col = 1,
@@ -3337,7 +3337,7 @@ describe('LSP', function()
           filename = '/test_b',
           kind = 'Module',
           lnum = 4,
-          text = '[Module] TestB',
+          text = '[Module] TestB in TestBContainer (deprecated)',
         },
       }
       eq(
@@ -3364,7 +3364,7 @@ describe('LSP', function()
               containerName = 'TestAContainer',
             },
             {
-              deprecated = false,
+              deprecated = true,
               kind = 2,
               name = 'TestB',
               location = {
@@ -7108,6 +7108,33 @@ describe('LSP', function()
           return vim.diagnostic.get(vim.uri_to_bufnr(fake_uri))[1].message
         end)
       )
+    end)
+  end)
+
+  describe('vim.lsp.buf.hover()', function()
+    it('handles empty contents', function()
+      exec_lua(create_server_definition)
+      exec_lua(function()
+        local server = _G._create_server({
+          capabilities = {
+            hoverProvider = true,
+          },
+          handlers = {
+            ['textDocument/hover'] = function(_, _, callback)
+              local res = {
+                contents = {
+                  kind = 'markdown',
+                  value = '',
+                },
+              }
+              callback(nil, res)
+            end,
+          },
+        })
+        vim.lsp.start({ name = 'dummy', cmd = server.cmd })
+      end)
+
+      eq('Empty hover response', n.exec_capture('lua vim.lsp.buf.hover()'))
     end)
   end)
 end)

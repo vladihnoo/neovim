@@ -134,6 +134,7 @@ typedef struct {
   int save_msg_scroll;
   int save_State;                       // remember State when called
   int prev_cmdpos;
+  char *prev_cmdbuff;
   char *save_p_icm;
   bool some_key_typed;                  // one of the keys was typed
   // mouse drag and release events are ignored, unless they are
@@ -1013,12 +1014,16 @@ theend:
     ccline.cmdbuff = NULL;
   }
 
+  xfree(s->prev_cmdbuff);
   return (uint8_t *)p;
 }
 
 static int command_line_check(VimState *state)
 {
   CommandLineState *s = (CommandLineState *)state;
+
+  s->prev_cmdpos = ccline.cmdpos;
+  XFREE_CLEAR(s->prev_cmdbuff);
 
   redir_off = true;        // Don't redirect the typed command.
   // Repeated, because a ":redir" inside
@@ -1028,6 +1033,10 @@ static int command_line_check(VimState *state)
   did_emsg = false;        // There can't really be a reason why an error
                            // that occurs while typing a command should
                            // cause the command not to be executed.
+
+  if (ccline.cmdbuff != NULL) {
+    s->prev_cmdbuff = xmemdupz(ccline.cmdbuff, (size_t)ccline.cmdpos);
+  }
 
   // Trigger SafeState if nothing is pending.
   may_trigger_safestate(s->xpc.xp_numfiles <= 0);
@@ -1138,8 +1147,11 @@ static int command_line_wildchar_complete(CommandLineState *s)
       res = OK;                 // don't insert 'wildchar' now
     }
   } else {                    // typed p_wc first time
-    if (s->c == p_wc || s->c == p_wcm) {
+    if (s->c == p_wc || s->c == p_wcm || s->c == K_WILD || s->c == Ctrl_Z) {
       options |= WILD_MAY_EXPAND_PATTERN;
+      if (s->c == K_WILD) {
+        options |= WILD_FUNC_TRIGGER;
+      }
       s->xpc.xp_pre_incsearch_pos = s->is_state.search_start;
     }
     s->wim_index = 0;
@@ -1433,10 +1445,21 @@ static int command_line_execute(VimState *state, int key)
     }
   }
 
-  // Completion for 'wildchar' or 'wildcharm' key.
-  if ((s->c == p_wc && !s->gotesc && KeyTyped) || s->c == p_wcm || s->c == Ctrl_Z) {
-    if (command_line_wildchar_complete(s) == CMDLINE_CHANGED) {
+  // Completion for 'wildchar', 'wildcharm', and wildtrigger()
+  if ((s->c == p_wc && !s->gotesc && KeyTyped) || s->c == p_wcm || s->c == K_WILD
+      || s->c == Ctrl_Z) {
+    if (s->c == K_WILD) {
+      emsg_silent++;  // Silence the bell
+    }
+    int res = command_line_wildchar_complete(s);
+    if (s->c == K_WILD) {
+      emsg_silent--;
+    }
+    if (res == CMDLINE_CHANGED) {
       return command_line_changed(s);
+    }
+    if (s->c == K_WILD) {
+      return command_line_not_changed(s);
     }
   }
 
@@ -2288,7 +2311,6 @@ static void may_trigger_cursormovedc(CommandLineState *s)
 {
   if (ccline.cmdpos != s->prev_cmdpos) {
     trigger_cmd_autocmd(s->cmdline_type, EVENT_CURSORMOVEDC);
-    s->prev_cmdpos = ccline.cmdpos;
     ccline.redraw_state = MAX(ccline.redraw_state, kCmdRedrawPos);
   }
 }
@@ -2296,6 +2318,7 @@ static void may_trigger_cursormovedc(CommandLineState *s)
 static int command_line_not_changed(CommandLineState *s)
 {
   may_trigger_cursormovedc(s);
+  s->prev_cmdpos = ccline.cmdpos;
   // Incremental searches for "/" and "?":
   // Enter command_line_not_changed() when a character has been read but the
   // command line did not change. Then we only search and redraw if something
@@ -2772,8 +2795,12 @@ static void do_autocmd_cmdlinechanged(int firstc)
 
 static int command_line_changed(CommandLineState *s)
 {
-  // Trigger CmdlineChanged autocommands.
-  do_autocmd_cmdlinechanged(s->firstc > 0 ? s->firstc : '-');
+  if (ccline.cmdpos != s->prev_cmdpos
+      || (s->prev_cmdbuff != NULL
+          && strncmp(s->prev_cmdbuff, ccline.cmdbuff, (size_t)s->prev_cmdpos) != 0)) {
+    // Trigger CmdlineChanged autocommands.
+    do_autocmd_cmdlinechanged(s->firstc > 0 ? s->firstc : '-');
+  }
 
   may_trigger_cursormovedc(s);
 
@@ -4893,4 +4920,28 @@ void get_user_input(const typval_T *const argvars, typval_T *const rettv, const 
   // Since the user typed this, no need to wait for return.
   need_wait_return = false;
   msg_didout = false;
+}
+
+/// "wildtrigger()" function
+void f_wildtrigger(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
+{
+  if (!(State & MODE_CMDLINE) || char_avail()
+      || (wild_menu_showing != 0 && wild_menu_showing != WM_LIST)
+      || cmdline_pum_active()) {
+    return;
+  }
+
+  int cmd_type = get_cmdline_type();
+
+  if (cmd_type == ':' || cmd_type == '/' || cmd_type == '?') {
+    // Add K_WILD as a single special key
+    uint8_t key_string[4];
+    key_string[0] = K_SPECIAL;
+    key_string[1] = KS_EXTRA;
+    key_string[2] = KE_WILD;
+    key_string[3] = NUL;
+
+    // Insert it into the typeahead buffer
+    ins_typebuf((char *)key_string, REMAP_NONE, 0, true, false);
+  }
 }
